@@ -1,36 +1,59 @@
-# This is a basic workflow to help you get started with Actions
+name: Unzip Addon
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+  push:
+    paths:
+      - "*.zip"
+
+permissions:
+  contents: write
+
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  unzip:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Find ZIP
+        id: zip
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          echo "zipfile=$ZIP" >> $GITHUB_OUTPUT
+
+      - name: Extract ZIP
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          mkdir extracted
+          unzip -o "${{ steps.zip.outputs.zipfile }}" -d extracted
+
+      - name: Move files to repository root
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          shopt -s dotglob
+          find extracted -mindepth 1 -maxdepth 1 -type d | while read dir; do
+            cp -r "$dir"/* .
+          done
+          find extracted -maxdepth 1 -type f -exec cp {} . \;
+
+      - name: Remove ZIP and temp files
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          rm -rf extracted
+          rm -f *.zip
+
+      - name: Commit changes
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add .
+
+          git diff --cached --quiet && exit 0
+
+          git commit -m "Auto extract addon"
+          git push
