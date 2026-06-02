@@ -1,36 +1,59 @@
 name: Unzip Addon
 
 on:
+  workflow_dispatch:
+
   push:
     paths:
       - "*.zip"
+
+permissions:
+  contents: write
 
 jobs:
   unzip:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Extract ZIPs
+      - name: Find ZIP
+        id: zip
         run: |
-          for z in *.zip; do
-            [ -f "$z" ] || continue
-            unzip -o "$z" -d extracted
+          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          echo "zipfile=$ZIP" >> $GITHUB_OUTPUT
+
+      - name: Extract ZIP
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          mkdir extracted
+          unzip -o "${{ steps.zip.outputs.zipfile }}" -d extracted
+
+      - name: Move files to repository root
+        if: steps.zip.outputs.zipfile != ''
+        run: |
+          shopt -s dotglob
+          find extracted -mindepth 1 -maxdepth 1 -type d | while read dir; do
+            cp -r "$dir"/* .
           done
+          find extracted -maxdepth 1 -type f -exec cp {} . \;
 
-      - name: Copy files to root
+      - name: Remove ZIP and temp files
+        if: steps.zip.outputs.zipfile != ''
         run: |
-          cp -r extracted/* .
           rm -rf extracted
+          rm -f *.zip
 
-      - name: Commit extracted files
+      - name: Commit changes
+        if: steps.zip.outputs.zipfile != ''
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
           git add .
-          git commit -m "Auto extract addon" || exit 0
+
+          git diff --cached --quiet && exit 0
+
+          git commit -m "Auto extract addon"
           git push
